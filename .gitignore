@@ -1,0 +1,7 @@
+dataset/
+trainer/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.vscode/
