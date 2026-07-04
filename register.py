@@ -14,12 +14,58 @@ Fix notes (see chat for full explanation):
 
 import cv2
 import os
+import sqlite3
 import tkinter as tk
 from tkinter import messagebox
 
 # Load Haar Cascade once, at import time, so we fail fast with a clear
 # message if the file is missing instead of failing deep inside the loop.
 CASCADE_PATH = "haarcascade_frontalface_default.xml"
+TRAINER_PATH = "trainer/trainer.yml"
+DB_PATH = "students.db"
+
+# Same threshold used in attendance.py during recognition, kept consistent
+# so "this face is already registered" lines up with what attendance.py
+# would actually recognize later.
+DUPLICATE_THRESHOLD = 60
+
+
+def get_existing_name(existing_id):
+    """Looks up a student's name by ID from students.db."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM students WHERE id=?", (existing_id,))
+        result = cursor.fetchone()
+        conn.close()
+        return result[0] if result else "Unknown"
+    except Exception:
+        return "Unknown"
+
+
+def check_duplicate_face(gray_face, new_student_id):
+    """
+    Checks a freshly captured face against the already-trained recognizer.
+
+    Returns (True, existing_id, existing_name) if this face confidently
+    matches a DIFFERENT student ID that's already trained into the model.
+    Returns (False, None, None) if it's a new face, or if no model has
+    been trained yet.
+    """
+    if not os.path.exists(TRAINER_PATH):
+        # Nothing trained yet (first-ever registration) - nothing to compare.
+        return False, None, None
+
+    recognizer = cv2.face.LBPHFaceRecognizer_create()
+    recognizer.read(TRAINER_PATH)
+
+    predicted_id, confidence = recognizer.predict(gray_face)
+
+    # LBPH confidence is a DISTANCE - lower means more similar.
+    if confidence < DUPLICATE_THRESHOLD and str(predicted_id) != str(new_student_id):
+        return True, predicted_id, get_existing_name(predicted_id)
+
+    return False, None, None
 
 
 def run_face_capture(student_id, student_name=""):
@@ -55,6 +101,11 @@ def run_face_capture(student_id, student_name=""):
     cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
     count = 0
+    duplicate_checked = False
+    blocked = False
+    existing_id = None
+    existing_name = None
+
     print(f"Capturing face samples for Student ID: {student_id} ({student_name})")
 
     while True:
@@ -74,9 +125,25 @@ def run_face_capture(student_id, student_name=""):
         )
 
         for (x, y, w, h) in faces:
-            count += 1
             face = gray[y:y + h, x:x + w]
 
+            # Run the duplicate check only once, on the first clearly
+            # detected face, BEFORE any image gets saved for this session.
+            if not duplicate_checked:
+                duplicate_checked = True
+                is_dup, existing_id, existing_name = check_duplicate_face(face, student_id)
+                if is_dup:
+                    blocked = True
+                    cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 255), 2)
+                    cv2.putText(
+                        img, "NOT IDENTIFIED - Already Registered", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2
+                    )
+                    cv2.imshow("Face Capture", img)
+                    cv2.waitKey(1500)
+                    break
+
+            count += 1
             cv2.imwrite(f"dataset/User.{student_id}.{count}.jpg", face)
 
             cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
@@ -84,6 +151,9 @@ def run_face_capture(student_id, student_name=""):
                 img, f"Samples: {count}/50", (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2
             )
+
+        if blocked:
+            break
 
         cv2.putText(
             img, "Press ESC to stop early", (10, img.shape[0] - 15),
@@ -100,6 +170,21 @@ def run_face_capture(student_id, student_name=""):
 
     cam.release()
     cv2.destroyAllWindows()
+
+    if blocked:
+        print(f"Registration blocked: face already registered as ID {existing_id} ({existing_name}).")
+        # Remove any partial samples saved for this rejected session.
+        for f in os.listdir("dataset"):
+            if f.startswith(f"User.{student_id}."):
+                os.remove(os.path.join("dataset", f))
+        messagebox.showerror(
+            "Not Identified - Face Already Registered",
+            f"This face is already registered as:\n\n"
+            f"ID: {existing_id}\nName: {existing_name}\n\n"
+            f"Not Identified for new Student ID {student_id}.\n"
+            "Each face can only be registered under one ID."
+        )
+        return
 
     print(f"Successfully captured {count} images.")
     messagebox.showinfo(
