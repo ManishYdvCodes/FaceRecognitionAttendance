@@ -1,7 +1,7 @@
-
 import os
 import sqlite3
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
 
 import cv2
 import numpy as np
@@ -19,6 +19,7 @@ TRAINER_DIR = "trainer"
 TRAINER_PATH = os.path.join(TRAINER_DIR, "trainer.yml")
 ATTENDANCE_DIR = "attendance"
 CASCADE_PATH = "haarcascade_frontalface_default.xml"
+IST = ZoneInfo("Asia/Kolkata")
 DUPLICATE_THRESHOLD = 60
 RECOGNITION_THRESHOLD = 60
 SAMPLES_TARGET = 20  # fewer than the desktop version's 50, since each
@@ -130,7 +131,7 @@ def sample_count(student_id):
 # Attendance helpers
 # --------------------------------------------------------------------------
 def today_attendance_path(day=None):
-    day = day or datetime.now()
+    day = day or datetime.now(IST)
     return os.path.join(ATTENDANCE_DIR, f"Attendance_{day.strftime('%Y_%m_%d')}.csv")
 
 
@@ -146,7 +147,7 @@ def mark_attendance(student_id, name):
     df = load_attendance()
     if student_id in df["ID"].values:
         return False  # already marked today
-    new_row = pd.DataFrame([[student_id, name, datetime.now().strftime("%H:%M:%S")]],
+    new_row = pd.DataFrame([[student_id, name, datetime.now(IST).strftime("%H:%M:%S")]],
                             columns=["ID", "Name", "Time"])
     combined = pd.concat([df, new_row], ignore_index=True)
     combined.to_csv(path, index=False)
