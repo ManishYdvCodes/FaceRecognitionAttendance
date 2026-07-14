@@ -1,3 +1,4 @@
+🔗 **Live demo:** https://facerecognitionattendance-3ltb45e8hcqicrhtacfpfw.streamlit.app/
 # Face Recognition Attendance System
 
 A desktop attendance system built with **Python, OpenCV, and Tkinter**. Students are registered with a webcam face capture, a local LBPH model is trained on the captured faces, and attendance is marked automatically via live face recognition — logged to CSV and viewable through a built‑in GUI, with basic analytics and charts.
